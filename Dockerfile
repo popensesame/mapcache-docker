@@ -1,52 +1,91 @@
-FROM gdal-docker:2.2.1
-
-RUN apt-get update && apt-get install -y \
-	libfcgi-dev \
-	fcgiwrap \
-	libtiff-dev \
-	cmake \
-	libapr1-dev \
-	libaprutil1-dev \
-	nginx
+FROM debian:stable
 
 ENV BUILD_DIR=/tmp/build
-ENV MAPCACHE_CONFIG_FILE=/usr/local/src/mapcache/mapcache.xml
+ENV MAPCACHE_CONF=/var/www/html/mapcache/mapcache.xml
+ENV TILESET_NAME=MeanNDVI
+ENV ZOOM_LEVEL_END=3
 
-ADD . $BUILD_DIR/mapcache-docker
-ADD ./mapcache.xml $MAPCACHE_CONFIG_FILE
+# Dependencies
 
-RUN cd $BUILD_DIR && git clone https://github.com/mapserver/mapcache.git && \
-    cd mapcache && git checkout branch-1-4 && mkdir build
+RUN apt-get update && apt-get install -y \
+  cmake \
+  build-essential \
+  git \
+  apache2-dev \
+  libproj-dev \
+  libtiff-dev \
+  libapr1-dev \
+  libaprutil1-dev \
+  libpng-dev \
+  libjpeg62-turbo-dev \
+  libpcre3-dev \
+  libpixman-1-dev \
+  libgeotiff-dev \
+  libgeos-dev \
+  libgdal-dev 
 
-RUN cd $BUILD_DIR/mapcache/build && cmake .. \
-     -DWITH_PIXMAN=1 \
+RUN apt-get update && apt-get install -y \
+    libxml2-utils \
+    apache2 \
+    gdal-bin
+
+# Build Mapcache
+
+RUN mkdir $BUILD_DIR && cd $BUILD_DIR && \
+    git clone https://github.com/mapserver/mapcache.git && \
+    cd mapcache && \
+    git checkout branch-1-6 && \
+    mkdir build
+
+RUN cd $BUILD_DIR/mapcache/build && \
+    cmake .. \
+     -DCMAKE_INSTALL_PREFIX=/usr \
+     -DWITH_APACHE=1 \
      -DWITH_OGR=1 \
      -DWITH_GEOS=1 \
      -DWITH_PCRE=1 \
-     -DWITH_FCGI=1 \
+     -DWITH_PIXMAN=1 \
      -DWITH_TIFF=1 \
-     -DWITH_TIFF_WRITE_SUPPORT=0 \
-     -DWITH_GEOTIFF=0 \
+     -DWITH_GEOTIFF=1 \
+     -DWITH_FCGI=0 \
      -DWITH_SQLITE=0 \
      -DWITH_MEMCACHE=0 \
-     -DWITH_APACHE=0 \
-     -DWITH_VERSION_STRING=0 \
-     -DWITH_MAPSERVER=0
+     -DWITH_MAPSERVER=0 \
+     -DWITH_TIFF_WRITE_SUPPORT=0 \
+     -DWITH_VERSION_STRING=0
 
-RUN cd $BUILD_DIR/mapcache/build && make
+RUN cd $BUILD_DIR/mapcache/build && \
+    make && make install && ldconfig
 
-RUN cd $BUILD_DIR/mapcache/build && make install
+# Configure Apache
 
-RUN cd $BUILD_DIR/mapcache-docker && \
-    cp mapcache.conf /etc/nginx/sites-available/mapcache && \
-    ln -s /etc/nginx/sites-available/mapcache /etc/nginx/sites-enabled/mapcache && \
-    rm /etc/nginx/sites-enabled/default
+RUN echo "LoadModule mapcache_module /usr/lib/apache2/modules/mod_mapcache.so" \
+      >> /etc/apache2/mods-available/mapcache.load
 
-RUN service fcgiwrap start
-RUN service nginx restart
+RUN echo 'ServerName 127.0.0.1' >> /etc/apache2/apache2.conf
 
-RUN chown www-data:www-data /var/run/fcgiwrap.socket && \
-    chmod og+rw /var/run/fcgiwrap.socket
+ADD ./mapcache-apache.conf /etc/apache2/sites-available/mapcache.conf
 
-RUN echo "Hello World" > /var/www/html/test && \
-    chown root:www-data /var/www/html/test
+# Test mapcache seeder
+
+ADD ./mapcache.xml $MAPCACHE_CONF
+
+RUN mkdir /var/www/html/mapcache/cache
+
+#ADD ./world.tif /var/www/html/mapcache/world.tif
+
+RUN chown -R www-data:www-data /var/www/html/mapcache
+
+RUN mapcache_seed -c $MAPCACHE_CONF -t $TILESET_NAME --force -z 0,$ZOOM_LEVEL_END
+
+# Start apache
+
+RUN a2dissite 000-default
+
+RUN a2enmod mapcache
+RUN a2ensite mapcache
+
+EXPOSE 80
+
+#RUN service apache2 restart
+
