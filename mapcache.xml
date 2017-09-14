@@ -3,6 +3,7 @@
 
 <cache name="disk" type="disk">
     <base>/var/www/html/mapcache/cache</base>
+    <symlink_blank/>
 </cache>
 
 <source name="MeanNDVI" type="wms">
@@ -25,12 +26,13 @@
   <source>MeanNDVI</source>
   <cache>disk</cache>
   <format>PNG</format>
-  <grid>g</grid>
-  <metatile>1 1</metatile>
-  <expires>1</expires>
-  <!--<auto_expire>86400</auto_expire>-->
+  <metatile>4 4</metatile>
+  <!--
+  <grid maxzoom="5" restricted_extent="-14371573 2319032 -7262671 6828880">g</grid>
+  -->
+  <grid restricted_extent="-14371573 2319032 -7262671 6828880">g</grid>
+  <auto_expire>86400</auto_expire>
 </tileset>
-
 
 <service type="wmts" enabled="true"/>
 
